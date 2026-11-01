@@ -121,7 +121,7 @@
   function videoUrl(v) {
     if (v.src) return v.src; // demo
     if (CFG.driveApiKey) return 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(v.fileId) + '?alt=media&key=' + encodeURIComponent(CFG.driveApiKey);
-    return 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(v.fileId);
+    return 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(v.fileId) + '&export=download&confirm=t';
   }
 
   /* -------------------------------------------------------------- api */
