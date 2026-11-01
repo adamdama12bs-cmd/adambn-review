@@ -4,7 +4,7 @@
  */
 window.REVIEW_CONFIG = {
   // Paste your Apps Script Web App URL here (ends with /exec). Leave empty for demo mode.
-  apiUrl: '',
+  apiUrl: 'https://script.google.com/macros/s/AKfycbyiqUK5jdSNU6PgfnhFmTejeqUwGz6NQcXt3HAHM9pmvS6qD_vQvhwUcIfEah3_MI_B/exec',
 
   // Google Cloud API key with the Google Drive API enabled (lets the browser stream the video from Drive).
   driveApiKey: '',
