@@ -420,7 +420,13 @@
     video.addEventListener('timeupdate', updateTime);
     video.addEventListener('seeked', updateTime);
     video.addEventListener('progress', updateBuffer);
-    video.addEventListener('loadedmetadata', function () { $('tcDur').textContent = frameToTc(totalFrames()); renderMarkers(); updateTime(); });
+    function fitPlayer() {
+      var w = video.videoWidth, h = video.videoHeight, box = $('player');
+      if (!w || !h) return;
+      box.style.setProperty('--ar', w / h);
+      box.classList.toggle('tall', h >= w);
+    }
+    video.addEventListener('loadedmetadata', function () { fitPlayer(); $('tcDur').textContent = frameToTc(totalFrames()); renderMarkers(); updateTime(); });
     video.addEventListener('error', function () {
       var err = $('videoError');
       err.hidden = false;

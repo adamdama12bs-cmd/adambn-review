@@ -52,6 +52,9 @@ select { background: var(--surface); border: 1px solid var(--border); border-rad
 .player.playing .big-play { opacity: 0; }
 .video-error { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 24px; color: var(--muted); background: #000; }
 .player:fullscreen { border-radius: 0; aspect-ratio: auto; }
+/* vertical / square videos: box follows the video's shape and fits the screen height */
+.player.tall { aspect-ratio: var(--ar); width: min(100%, calc((100vh - 230px) * var(--ar))); margin: 0 auto; }
+.player.tall:fullscreen { width: 100%; aspect-ratio: auto; }
 
 .controls { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
 .icon .i-pause, .playing-ctl .i-play { display: none; }
@@ -146,6 +149,7 @@ select { background: var(--surface); border: 1px solid var(--border); border-rad
   .player-col { padding: 12px 16px; }
   .comments-col { border-left: 0; border-top: 1px solid var(--border); height: auto; position: static; }
   .comment-list { max-height: 55vh; }
+  .player.tall { width: min(100%, calc((100svh - 200px) * var(--ar))); }
   .hint, #speedSelect, #prevFrame, #nextFrame { display: none; }
   .controls { flex-wrap: wrap; }
   .controls .tc { margin-right: auto; }
