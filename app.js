@@ -121,7 +121,7 @@
   // Drive blocks playing its files directly on other sites, so fetch the file
   // through the backend in slices and play it from memory.
   var blobUrls = {};
-  function loadViaProxy(v) {
+  function loadViaProxy(v, onProgress) {
     if (blobUrls[v.fileId]) return Promise.resolve(blobUrls[v.fileId]);
     function get(i) {
       return fetch(CFG.apiUrl + '?action=chunk&f=' + encodeURIComponent(v.fileId) + '&i=' + i)
@@ -132,14 +132,17 @@
       for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
       return out;
     }
+    var done = 0;
+    function tick(total) { done++; if (onProgress) onProgress(done, total); }
     return get(0).then(function (first) {
       var parts = [bytes(first.data)], jobs = [];
+      tick(first.chunks);
       for (var i = 1; i < first.chunks; i++) jobs.push(i);
       var next = 0;
       function worker() {
         if (next >= jobs.length) return Promise.resolve();
         var i = jobs[next++];
-        return get(i).then(function (c) { parts[i] = bytes(c.data); return worker(); });
+        return get(i).then(function (c) { parts[i] = bytes(c.data); tick(c.chunks); return worker(); });
       }
       var pool = [];
       for (var w = 0; w < 3; w++) pool.push(worker());
@@ -148,6 +151,24 @@
         blobUrls[v.fileId] = url;
         return url;
       });
+    });
+  }
+
+  function startProxy(v) {
+    var err = $('videoError');
+    v.proxyTried = true;
+    err.hidden = false;
+    err.textContent = 'Loading video…';
+    loadViaProxy(v, function (done, total) {
+      if (state.version === v) err.textContent = 'Loading video… ' + Math.round(done / total * 100) + '%';
+    }).then(function (url) {
+      if (state.version !== v) return;
+      err.hidden = true;
+      video.src = url;
+      video.load();
+    }).catch(function (e) {
+      if (state.version !== v) return;
+      err.textContent = 'The video could not be loaded (' + e.message + '). Please refresh in a minute.';
     });
   }
 
@@ -247,7 +268,13 @@
     state.version = v;
     $('versionSelect').value = v.version;
     $('videoError').hidden = true;
-    video.src = videoUrl(v);
+    if (!DEMO && v.fileId && !CFG.driveApiKey && !blobUrls[v.fileId]) {
+      // Drive no longer plays on other sites, so go straight to the backend.
+      video.removeAttribute('src');
+      startProxy(v);
+    } else {
+      video.src = videoUrl(v);
+    }
     var dl = $('downloadBtn');
     if (CFG.allowDownload && v.fileId) {
       dl.hidden = false; dl.textContent = T.download || 'Download';
@@ -464,18 +491,9 @@
     video.addEventListener('error', function () {
       var err = $('videoError');
       var v = state.version;
+      if (!video.getAttribute('src')) return; // no source yet (loading through the backend)
       if (!DEMO && v && v.fileId && !video.src.startsWith('blob:') && !v.proxyTried) {
-        v.proxyTried = true;
-        err.hidden = false;
-        err.textContent = 'Loading video…';
-        loadViaProxy(v).then(function (url) {
-          if (state.version !== v) return;
-          err.hidden = true;
-          video.src = url;
-        }).catch(function (e) {
-          if (state.version !== v) return;
-          err.textContent = 'The video could not be loaded (' + e.message + '). Please refresh in a minute.';
-        });
+        startProxy(v);
         return;
       }
       err.hidden = false;
