@@ -5,7 +5,11 @@
   var T = CFG.text || {};
   var params = new URLSearchParams(location.search);
   var projectId = params.get('p') || window.REVIEW_PROJECT || null; // short links set REVIEW_PROJECT
+  var slug = projectId ? '' : (window.REVIEW_SLUG || '');          // custom short links (404.html) set REVIEW_SLUG
+  var folderId = params.get('f') || null;                           // shared folder
+  var fromFolder = params.get('from') || '';                        // came here from a shared folder
   var adminKey = params.get('key') || '';
+  if (!adminKey) { try { adminKey = localStorage.getItem('adambn.key') || ''; } catch (e) { /* private mode */ } } // signed in to the dashboard
   var DEMO = !CFG.apiUrl || params.get('demo') === '1';
 
   var $ = function (id) { return document.getElementById(id); };
@@ -183,7 +187,12 @@
 
   var api = DEMO ? demoApi() : {
     review: function () {
-      return fetch(CFG.apiUrl + '?action=review&p=' + encodeURIComponent(projectId) + '&key=' + encodeURIComponent(adminKey))
+      var q = projectId ? '&p=' + encodeURIComponent(projectId) : '&s=' + encodeURIComponent(slug);
+      return fetch(CFG.apiUrl + '?action=review' + q + '&key=' + encodeURIComponent(adminKey))
+        .then(function (r) { return r.json(); }).then(check);
+    },
+    folder: function (id, s) {
+      return fetch(CFG.apiUrl + '?action=folder' + (id ? '&f=' + encodeURIComponent(id) : '&s=' + encodeURIComponent(s)))
         .then(function (r) { return r.json(); }).then(check);
     },
     post: function (body) {
@@ -237,8 +246,16 @@
 
   function load(first) {
     return api.review().then(function (data) {
+      if (data.redirectFolder) return showFolder(data.redirectFolder);
       state.data = data;
       if (first) {
+        projectId = data.project.id;
+        if (fromFolder) {
+          var back = document.createElement('a');
+          back.className = 'back-link'; back.href = '?f=' + encodeURIComponent(fromFolder);
+          back.textContent = '← All videos';
+          $('projectClient').parentNode.insertBefore(back, $('projectTitle'));
+        }
         document.title = data.project.title + ' · ' + ((CFG.brand && CFG.brand.name) || 'Review');
         $('projectTitle').textContent = data.project.title;
         $('projectClient').textContent = data.project.client || '';
@@ -601,13 +618,65 @@
 
   function closeModal() { $('modal').hidden = true; $('modalFrame').innerHTML = ''; }
 
+  /* ---------------------------------------------------- shared folder */
+
+  function fmtDur(frames, f) {
+    if (!frames || !f) return '';
+    var s = Math.round(frames / f), m = Math.floor(s / 60);
+    return m + ':' + ('0' + (s % 60)).slice(-2);
+  }
+
+  function showFolder(id, s) {
+    return api.folder(id, s).then(function (data) {
+      if (data.redirectProject) { location.replace('?p=' + encodeURIComponent(data.redirectProject)); return; }
+      document.body.classList.add('folder-mode');
+      document.querySelector('main.review').hidden = true;
+      $('folderView').hidden = false;
+      $('versionSelect').hidden = true;
+      document.title = data.folder.name + ' · ' + ((CFG.brand && CFG.brand.name) || 'Review');
+      $('projectTitle').textContent = data.folder.name;
+      $('projectClient').textContent = data.videos.length + ' video' + (data.videos.length === 1 ? '' : 's');
+      $('folderName').innerHTML = esc(data.folder.name);
+      var subs = $('folderSubs');
+      subs.innerHTML = '';
+      data.folders.forEach(function (f) {
+        var a = document.createElement('a');
+        a.className = 'folder-chip';
+        a.href = f.slug ? f.slug + '/' : '?f=' + encodeURIComponent(f.id);
+        a.innerHTML = '<svg viewBox="0 0 24 24"><path d="M3 5h7l2 2h9v12H3z"/></svg>' + esc(f.name);
+        subs.appendChild(a);
+      });
+      var grid = $('folderGrid');
+      grid.innerHTML = '';
+      if (!data.videos.length) grid.innerHTML = '<p class="muted">Nothing here yet.</p>';
+      data.videos.forEach(function (v) {
+        var a = document.createElement('a');
+        a.className = 'card';
+        a.href = (v.slug ? v.slug + '/?' : '?p=' + encodeURIComponent(v.id) + '&') + 'from=' + encodeURIComponent(data.folder.id);
+        var tall = v.height > v.width;
+        a.innerHTML = '<div class="thumb' + (tall ? ' tall' : '') + '">' + (v.thumb ? '<img src="' + escAttr(v.thumb) + '" alt="">' : '') +
+          (v.durationFrames ? '<span class="dur">' + fmtDur(v.durationFrames, v.fps) + '</span>' : '') + '</div>' +
+          '<div class="meta"><b>' + esc(v.title) + '</b><span>' + esc([v.client, v.versions > 1 ? 'Version ' + v.versions : ''].filter(Boolean).join(' · ')) + '</span></div>';
+        grid.appendChild(a);
+      });
+    });
+  }
+
   /* -------------------------------------------------------------- go */
 
   applyBrand();
   bindPlayer();
   [].forEach.call(document.querySelectorAll('[data-close]'), function (el) { el.onclick = closeModal; });
 
-  if (!projectId && !DEMO) {
+  if (folderId && !DEMO) {
+    showFolder(folderId).catch(function (e) {
+      $('projectTitle').textContent = 'Could not open this folder';
+      $('commentList').innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+    });
+    return;
+  }
+
+  if (!projectId && !slug && !DEMO) {
     $('projectTitle').textContent = 'Nothing to review here';
     $('commentList').innerHTML = '<div class="empty">This link is missing its project. Ask for a new link.</div>';
     return;
@@ -615,6 +684,7 @@
   if (DEMO) projectId = projectId || 'demo';
 
   load(true).then(function () {
+    if (!state.data) return; // it was a folder link
     // pick up new comments from other reviewers
     setInterval(function () { if (!document.hidden) load(false).catch(function () {}); }, 30000);
   }).catch(function (e) {
