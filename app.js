@@ -4,7 +4,7 @@
   var CFG = window.REVIEW_CONFIG || {};
   var T = CFG.text || {};
   var params = new URLSearchParams(location.search);
-  var projectId = params.get('p');
+  var projectId = params.get('p') || window.REVIEW_PROJECT || null; // short links set REVIEW_PROJECT
   var adminKey = params.get('key') || '';
   var DEMO = !CFG.apiUrl || params.get('demo') === '1';
 
@@ -280,7 +280,7 @@
       dl.hidden = false; dl.textContent = T.download || 'Download';
       dl.href = 'https://drive.google.com/uc?export=download&id=' + encodeURIComponent(v.fileId);
     }
-    var u = new URL(location.href); u.searchParams.set('v', v.version); history.replaceState(null, '', u);
+    if (state.data.versions.length > 1 || params.get('v')) { var u = new URL(location.href); u.searchParams.set('v', v.version); history.replaceState(null, '', u); }
     $('tcDur').textContent = frameToTc(v.durationFrames || 0);
     updateTime();
     renderComments();
