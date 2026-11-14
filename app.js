@@ -118,7 +118,41 @@
     return 'hsl(' + h + ', 55%, 45%)';
   }
 
+  // Drive blocks playing its files directly on other sites, so fetch the file
+  // through the backend in slices and play it from memory.
+  var blobUrls = {};
+  function loadViaProxy(v) {
+    if (blobUrls[v.fileId]) return Promise.resolve(blobUrls[v.fileId]);
+    function get(i) {
+      return fetch(CFG.apiUrl + '?action=chunk&f=' + encodeURIComponent(v.fileId) + '&i=' + i)
+        .then(function (r) { return r.json(); }).then(check);
+    }
+    function bytes(b64) {
+      var bin = atob(b64), out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    return get(0).then(function (first) {
+      var parts = [bytes(first.data)], jobs = [];
+      for (var i = 1; i < first.chunks; i++) jobs.push(i);
+      var next = 0;
+      function worker() {
+        if (next >= jobs.length) return Promise.resolve();
+        var i = jobs[next++];
+        return get(i).then(function (c) { parts[i] = bytes(c.data); return worker(); });
+      }
+      var pool = [];
+      for (var w = 0; w < 3; w++) pool.push(worker());
+      return Promise.all(pool).then(function () {
+        var url = URL.createObjectURL(new Blob(parts, { type: 'video/mp4' }));
+        blobUrls[v.fileId] = url;
+        return url;
+      });
+    });
+  }
+
   function videoUrl(v) {
+    if (blobUrls[v.fileId]) return blobUrls[v.fileId];
     if (v.src) return v.src; // demo
     if (CFG.driveApiKey) return 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(v.fileId) + '?alt=media&key=' + encodeURIComponent(CFG.driveApiKey);
     return 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(v.fileId) + '&export=download&confirm=t';
@@ -429,6 +463,21 @@
     video.addEventListener('loadedmetadata', function () { fitPlayer(); $('tcDur').textContent = frameToTc(totalFrames()); renderMarkers(); updateTime(); });
     video.addEventListener('error', function () {
       var err = $('videoError');
+      var v = state.version;
+      if (!DEMO && v && v.fileId && !video.src.startsWith('blob:') && !v.proxyTried) {
+        v.proxyTried = true;
+        err.hidden = false;
+        err.textContent = 'Loading video…';
+        loadViaProxy(v).then(function (url) {
+          if (state.version !== v) return;
+          err.hidden = true;
+          video.src = url;
+        }).catch(function (e) {
+          if (state.version !== v) return;
+          err.textContent = 'The video could not be loaded (' + e.message + '). Please refresh in a minute.';
+        });
+        return;
+      }
       err.hidden = false;
       err.textContent = 'The video could not be loaded. If it was just uploaded, give Google Drive a minute and refresh.';
     });
