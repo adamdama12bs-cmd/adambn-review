@@ -12,7 +12,8 @@
   var $ = function (id) { return document.getElementById(id); };
 
   // The public site address, e.g. https://adamdama12bs-cmd.github.io/adambn-review/
-  var SITE = location.href.replace(/admin\/.*$/, '').replace(/[?#].*$/, '');
+  // Share links use siteUrl from config.js when set (the short address), otherwise the address the dashboard is open on.
+  var SITE = CFG.siteUrl || location.href.replace(/admin\/.*$/, '').replace(/[?#].*$/, '');
   if (!/\/$/.test(SITE)) SITE += '/';
 
   var key = '';
