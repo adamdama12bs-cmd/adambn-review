@@ -6,8 +6,8 @@ window.REVIEW_CONFIG = {
   // Paste your Apps Script Web App URL here (ends with /exec). Leave empty for demo mode.
   apiUrl: 'https://script.google.com/macros/s/AKfycbyiqUK5jdSNU6PgfnhFmTejeqUwGz6NQcXt3HAHM9pmvS6qD_vQvhwUcIfEah3_MI_B/exec',
 
-  // Optional: Google Cloud API key with the Drive API enabled. Not needed; videos play straight from Drive without it.
-  driveApiKey: '',
+  // Google Cloud API key (Drive API only, limited to adamdama12bs-cmd.github.io). Lets videos stream straight from Drive.
+  driveApiKey: 'AIzaSyCM2uy8YaL5XtTxplkhmBkzhUSdQdF3uEE',
 
   brand: {
     name: 'Adam BN',               // shown top-left when there is no logo, and in "More work by ..."
