@@ -6,7 +6,10 @@ window.REVIEW_CONFIG = {
   // Paste your Apps Script Web App URL here (ends with /exec). Leave empty for demo mode.
   apiUrl: 'https://script.google.com/macros/s/AKfycbyiqUK5jdSNU6PgfnhFmTejeqUwGz6NQcXt3HAHM9pmvS6qD_vQvhwUcIfEah3_MI_B/exec',
 
-  // Google Cloud API key (Drive API only, limited to adamdama12bs-cmd.github.io). Lets videos stream straight from Drive.
+  // Short public address used in share links. The github.io address keeps working too.
+  siteUrl: 'https://adambn.pages.dev/',
+
+  // Google Cloud API key (Drive API only, limited to adambn.pages.dev and adamdama12bs-cmd.github.io). Lets videos stream straight from Drive.
   driveApiKey: 'AIzaSyCM2uy8YaL5XtTxplkhmBkzhUSdQdF3uEE',
 
   brand: {
