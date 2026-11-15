@@ -37,7 +37,8 @@ window.REVIEW_CONFIG = {
   },
 
   allowDownload: false,           // show a download button to the client
-  portfolioTitle: 'More *work*',  // heading above your previous projects; *word* is shown in the accent color
+  portfolioTitle: 'More *work* by me',  // heading above your previous projects; *word* is shown in the accent color
+  portfolioSmiley: true,                 // little hand-drawn smiley after the heading
 
   // UI text, in case you want it in another language.
   text: {
