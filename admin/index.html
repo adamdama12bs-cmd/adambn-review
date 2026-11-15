@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="../style.css?v=5">
+  <link rel="stylesheet" href="admin.css?v=1">
+  <script src="../config.js?v=5"></script>
+</head>
+<body class="dash">
+  <!-- sign in -->
+  <section class="login" id="login" hidden>
+    <form class="login-box" id="loginForm" autocomplete="on">
+      <div class="login-logo" id="loginLogo"></div>
+      <h1>Your <em>studio</em></h1>
+      <p class="muted">Sign in to upload, organise and share your videos.</p>
+      <input type="password" id="loginPassword" placeholder="Password or admin key" autocomplete="current-password" required>
+      <button class="btn" type="submit" id="loginBtn">Sign in</button>
+      <p class="login-err" id="loginErr" hidden></p>
+      <p class="muted small">First time? Use the admin key from Apps Script, then set a password under Settings.</p>
+    </form>
+  </section>
+
+  <!-- app -->
+  <div class="app" id="app" hidden>
+    <header class="topbar dash-top">
+      <button class="icon menu-btn" id="menuBtn" aria-label="Folders">
+        <svg viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+      </button>
+      <a class="brand" id="brand" href="./"></a>
+      <div class="search">
+        <svg viewBox="0 0 24 24"><path d="M10 4a6 6 0 1 0 3.6 10.8l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4zm0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8z"/></svg>
+        <input id="search" type="search" placeholder="Search videos">
+      </div>
+      <div class="top-actions">
+        <button class="btn" id="uploadBtn" type="button">
+          <svg viewBox="0 0 24 24"><path d="M11 16V7.8L7.4 11.4 6 10l6-6 6 6-1.4 1.4L13 7.8V16zm-6 4v-2h14v2z"/></svg>
+          Upload
+        </button>
+        <button class="icon" id="settingsBtn" aria-label="Settings">
+          <svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <div class="dash-body">
+      <nav class="side" id="side">
+        <button class="side-item" data-view="all" type="button">
+          <svg viewBox="0 0 24 24"><path d="M4 5h16v14H4zm2 2v10h12V7zm3 1.5 6 3.5-6 3.5z"/></svg> All videos
+        </button>
+        <button class="side-item" data-view="inbox" type="button">
+          <svg viewBox="0 0 24 24"><path d="M4 4h16v12H7l-3 3zm2 2v8.2l.2-.2H18V6z"/></svg> Comments <span class="badge" id="inboxBadge" hidden></span>
+        </button>
+        <div class="side-head">
+          <span>Folders</span>
+          <button class="icon small" id="newFolderSide" type="button" aria-label="New folder"><svg viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg></button>
+        </div>
+        <div class="tree" id="tree"></div>
+      </nav>
+
+      <main class="main" id="main">
+        <div class="main-head">
+          <div class="crumbs" id="crumbs"></div>
+          <div class="head-actions" id="headActions"></div>
+        </div>
+        <div class="folders-row" id="foldersRow"></div>
+        <div class="grid" id="grid"></div>
+        <div class="inbox" id="inbox" hidden></div>
+        <div class="dropzone" id="emptyDrop" hidden>
+          <svg viewBox="0 0 24 24"><path d="M11 16V7.8L7.4 11.4 6 10l6-6 6 6-1.4 1.4L13 7.8V16zm-6 4v-2h14v2z"/></svg>
+          <b>Drop videos here</b>
+          <span class="muted">or click Upload. MP4 (H.264) plays fastest for clients.</span>
+        </div>
+      </main>
+
+      <aside class="drawer" id="drawer" hidden></aside>
+    </div>
+  </div>
+
+  <div class="drop-overlay" id="dropOverlay" hidden><div>Drop to upload into <b id="dropTarget">All videos</b></div></div>
+  <div class="uploads" id="uploads" hidden></div>
+  <div class="dlg" id="dlg" hidden><div class="dlg-backdrop" data-dlg-close></div><div class="dlg-box" id="dlgBox"></div></div>
+  <div class="menu" id="menu" hidden></div>
+  <input type="file" id="fileInput" accept="video/*,.mov,.mp4,.m4v" multiple hidden>
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="media.js?v=1"></script>
+  <script src="admin.js?v=1"></script>
+</body>
+</html>
