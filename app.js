@@ -24,6 +24,16 @@
     composerFrame: 0
   };
 
+  // Hand-drawn doodle smiley for the "More work by me" heading.
+  var SMILEY = '<svg class="doodle-smiley" viewBox="0 0 100 100" aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M50 9c19-1 38 12 41 33 3 22-11 45-36 48C30 93 9 76 8 52 7 30 24 11 47 9" stroke-width="5.5"/>' +
+    '<path d="M35 36c0 3 0 6 0 9M63 35c-1 3 0 6 0 9" stroke-width="7"/>' +
+    '<path d="M28 58c6 13 20 19 33 14 6-2 10-7 12-13" stroke-width="5.5"/>' +
+    '<path d="M70 56c3 2 5 2 7 0" stroke-width="4"/>' +
+    '<ellipse cx="23" cy="56" rx="6" ry="3.5" fill="#ff9db5" stroke="none" opacity=".85"/>' +
+    '<ellipse cx="80" cy="50" rx="6" ry="3.5" fill="#ff9db5" stroke="none" opacity=".85"/>' +
+    '</svg>';
+
   /* ---------------------------------------------------------- branding */
 
   function applyBrand() {
@@ -48,7 +58,9 @@
     $('authorInput').placeholder = T.yourName || 'Your name';
     $('sendBtn').textContent = T.send || 'Send';
     $('lblAt').textContent = T.attachTime || 'At';
-    $('portfolioTitle').innerHTML = esc(CFG.portfolioTitle || 'More work').replace(/\*(.+?)\*/g, '<em>$1</em>') + (b.name ? ' by ' + esc(b.name) : '');
+    var pt = CFG.portfolioTitle || 'More work';
+    $('portfolioTitle').innerHTML = esc(pt).replace(/\*(.+?)\*/g, '<em>$1</em>') + (b.name && !/ by /i.test(pt) ? ' by ' + esc(b.name) : '') +
+      (CFG.portfolioSmiley ? ' ' + SMILEY : '');
 
     var foot = $('footer');
     var parts = [];

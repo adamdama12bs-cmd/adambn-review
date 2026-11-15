@@ -177,3 +177,8 @@ a.card { display: block; text-decoration: none; color: inherit; }
 .back-link { font-size: 13px; color: var(--muted); text-decoration: none; white-space: nowrap; }
 .back-link:hover { color: var(--text); }
 @media (max-width: 900px) { .folder-view { padding: 20px 16px 40px; } }
+
+/* doodle smiley after "More work by me" */
+.doodle-smiley { display: inline-block; width: .9em; height: .9em; vertical-align: -0.08em; color: var(--accent); transform: rotate(-8deg); transform-origin: 50% 60%; animation: smiley-wiggle 3.2s ease-in-out infinite; }
+@keyframes smiley-wiggle { 0%, 70%, 100% { transform: rotate(-8deg); } 78% { transform: rotate(8deg) scale(1.06); } 86% { transform: rotate(-12deg); } 94% { transform: rotate(4deg); } }
+@media (prefers-reduced-motion: reduce) { .doodle-smiley { animation: none; } }
