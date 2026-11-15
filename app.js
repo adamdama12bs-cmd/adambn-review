@@ -47,6 +47,8 @@
     var b = CFG.brand || {};
     var brand = $('brand');
     brand.href = b.website || '#';
+    // Signed in to the dashboard on this browser: the logo takes Adam back to it. Clients never have the key, so they never see this.
+    if (adminKey) { brand.href = 'admin/'; brand.title = 'Back to dashboard'; brand.removeAttribute('target'); }
     if (b.logoUrl) {
       var img = document.createElement('img'); img.src = b.logoUrl; img.alt = b.name || ''; brand.appendChild(img);
     } else {
