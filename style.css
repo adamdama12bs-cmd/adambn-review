@@ -182,3 +182,14 @@ a.card { display: block; text-decoration: none; color: inherit; }
 .doodle-smiley { display: inline-block; width: .9em; height: .9em; vertical-align: -0.08em; color: var(--accent); transform: rotate(-8deg); transform-origin: 50% 60%; animation: smiley-wiggle 3.2s ease-in-out infinite; }
 @keyframes smiley-wiggle { 0%, 70%, 100% { transform: rotate(-8deg); } 78% { transform: rotate(8deg) scale(1.06); } 86% { transform: rotate(-12deg); } 94% { transform: rotate(4deg); } }
 @media (prefers-reduced-motion: reduce) { .doodle-smiley { animation: none; } }
+
+/* notes that are still sending */
+.comment.pending { opacity: .62; }
+.comment.pending .c-time { font-style: italic; }
+.composer input.author.need { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+/* buffering spinner (only shows while the video waits for data) */
+.player::after { content: ''; position: absolute; left: 50%; top: 50%; width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; opacity: 0; pointer-events: none; transition: opacity .2s .4s; animation: vspin .8s linear infinite; }
+.player.buffering.playing::after { opacity: 1; }
+@keyframes vspin { to { transform: rotate(360deg); } }

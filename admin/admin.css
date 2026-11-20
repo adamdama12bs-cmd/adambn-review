@@ -220,3 +220,11 @@ input:focus { outline: none; border-color: var(--accent); }
   .slug-row { flex-wrap: wrap; }
   .slug-prefix { max-width: 100%; }
 }
+
+/* light review copies */
+.up-conv { display: flex; gap: 8px; align-items: center; font-size: 12.5px; color: var(--text); cursor: pointer; }
+.up-conv input { accent-color: var(--accent); width: 15px; height: 15px; }
+.ver .fixv { color: var(--accent); white-space: nowrap; }
+.heavy-banner { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 0 0 18px; padding: 12px 16px; border-radius: 14px; background: rgba(239, 136, 66, .16); border: 1px solid rgba(239, 136, 66, .5); font-size: 13.5px; line-height: 1.45; }
+.heavy-banner[hidden] { display: none; }
+.heavy-banner .btn { flex: none; }

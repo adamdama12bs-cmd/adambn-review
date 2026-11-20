@@ -21,7 +21,8 @@
     filter: 'all',
     replyTo: null,
     activeId: null,
-    composerFrame: 0
+    composerFrame: 0,
+    sentAt: {}           // comment id -> when this browser sent it
   };
 
   // Hand-drawn doodle smiley for the "More work by me" heading.
@@ -118,7 +119,9 @@
   }
   function seekFrame(frame) {
     frame = Math.max(0, Math.min(frame, Math.max(0, totalFrames() - 1)));
-    video.currentTime = (frame + 0.5) / fps();
+    var t = (frame + 0.5) / fps();
+    if (video.readyState < 1) { pendingSeek = t; updateTimeAt(frame); return; }
+    video.currentTime = t;
   }
 
   function timeAgo(iso) {
@@ -188,6 +191,117 @@
       if (state.version !== v) return;
       err.textContent = 'The video could not be loaded (' + e.message + '). Please refresh in a minute.';
     });
+  }
+
+  /*
+   * Smooth playback: the video starts streaming right away, and at the same
+   * time the whole file is downloaded once in the background and kept in the
+   * browser (Cache Storage). As soon as it is all here the player switches to
+   * the local copy, so it can't stall any more, seeking is instant, and the
+   * next visit plays straight from the computer without downloading again.
+   */
+  var CACHE = 'adambn-videos-v1';
+  var CACHE_MAX_BYTES = 300 * 1048576;   // bigger files just stream
+  var CACHE_KEEP = 6;                    // videos kept per browser
+  var full = {};                         // fileId -> promise of blob URL
+
+  function cacheKey(v) { return location.origin + '/__video/' + encodeURIComponent(v.fileId); }
+  function canCache() { return 'caches' in window && window.isSecureContext; }
+
+  function fromCache(v) {
+    if (!canCache()) return Promise.resolve(null);
+    return caches.open(CACHE).then(function (c) { return c.match(cacheKey(v)); })
+      .then(function (r) { return r ? r.blob() : null; })
+      .then(function (b) { return b && b.size ? URL.createObjectURL(b) : null; })
+      .catch(function () { return null; });
+  }
+
+  function trimCache(c) {
+    return c.keys().then(function (keys) {
+      var extra = keys.length - CACHE_KEEP;
+      for (var i = 0; i < extra; i++) c.delete(keys[i]);
+    });
+  }
+
+  // Downloads the whole file once (in the background) and resolves with a blob URL.
+  function downloadFull(v, onProgress) {
+    if (full[v.fileId]) return full[v.fileId];
+    full[v.fileId] = fromCache(v).then(function (hit) {
+      if (hit) return hit;
+      return fetch(videoUrl(v)).then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        var total = Number(res.headers.get('content-length')) || v.size || 0;
+        if (total > CACHE_MAX_BYTES) { try { res.body.cancel(); } catch (e) { /* ignore */ } throw new Error('too big to keep'); }
+        if (!res.body || !res.body.getReader) return res.blob();
+        var reader = res.body.getReader(), parts = [], got = 0;
+        function pump() {
+          return reader.read().then(function (r) {
+            if (r.done) return new Blob(parts, { type: 'video/mp4' });
+            parts.push(r.value); got += r.value.length;
+            if (onProgress && total) onProgress(got / total);
+            return pump();
+          });
+        }
+        return pump();
+      }).then(function (blob) {
+        if (canCache()) {
+          caches.open(CACHE).then(function (c) {
+            return c.put(cacheKey(v), new Response(blob, { headers: { 'Content-Type': 'video/mp4' } })).then(function () { return trimCache(c); });
+          }).catch(function () { /* storage full or blocked: still fine for this visit */ });
+        }
+        return URL.createObjectURL(blob);
+      });
+    });
+    full[v.fileId].catch(function () { delete full[v.fileId]; });
+    return full[v.fileId];
+  }
+
+  // Puts a new source in the player without losing the position or play state.
+  function swapSource(url) {
+    if (video.src === url) return;
+    var t = video.currentTime || 0, wasPlaying = !video.paused && !video.ended, rate = video.playbackRate;
+    if (pendingSeek == null && t > 0) pendingSeek = t;
+    video.src = url;
+    video.playbackRate = rate;
+    if (wasPlaying) { var pr = video.play(); if (pr && pr.catch) pr.catch(function () {}); }
+  }
+
+  var pendingSeek = null;   // seconds to jump to once the video can seek
+  var localUrl = {};        // fileId -> blob URL waiting to be swapped in
+  var stallTimer = null, stallCount = 0;
+
+  function useLocalWhenSafe() {
+    var v = state.version;
+    if (!v || !localUrl[v.fileId] || video.src === localUrl[v.fileId]) return;
+    // Swap right away when paused, ended or stuck; while it plays smoothly, wait for a pause or a hiccup.
+    if (video.paused || video.ended || video.readyState < 3) swapSource(localUrl[v.fileId]);
+  }
+
+  function startFullDownload(v) {
+    if (DEMO || !v.fileId || (v.size && v.size > CACHE_MAX_BYTES)) return;
+    downloadFull(v, function (p) {
+      if (state.version === v && p < 1) $('scrubBuffer').style.width = Math.max(parseFloat($('scrubBuffer').style.width) || 0, p * 100) + '%';
+    }).then(function (url) {
+      localUrl[v.fileId] = url;
+      if (state.version === v) { $('scrubBuffer').style.width = '100%'; useLocalWhenSafe(); }
+    }).catch(function () { /* keep streaming */ });
+  }
+
+  // If streaming gets stuck for a while, reconnect at the same spot.
+  function onStall() {
+    clearTimeout(stallTimer);
+    var v = state.version;
+    if (!v || DEMO) return;
+    useLocalWhenSafe();
+    stallTimer = setTimeout(function () {
+      if (video.readyState >= 3 || video.paused || state.version !== v) return;
+      if (localUrl[v.fileId]) { swapSource(localUrl[v.fileId]); return; }
+      if (video.src.indexOf('blob:') === 0) return;
+      stallCount++;
+      if (stallCount > 3) { $('videoError').hidden = false; $('videoError').textContent = 'Your connection is slow. The video keeps loading in the background and will play smoothly in a moment.'; }
+      var url = videoUrl(v);
+      swapSource(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'r=' + stallCount);
+    }, 7000);
   }
 
   function videoUrl(v) {
@@ -261,6 +375,15 @@
   function load(first) {
     return api.review().then(function (data) {
       if (data.redirectFolder) return showFolder(data.redirectFolder);
+      if (state.data && !first) {
+        // Keep notes that are still sending, or that were just sent and the server hasn't listed yet.
+        var have = {}, recent = Date.now() - 120000;
+        data.comments.forEach(function (c) { have[c.id] = true; });
+        state.data.comments.forEach(function (c) {
+          if (!have[c.id] && (c.pending || (state.sentAt[c.id] && state.sentAt[c.id] > recent))) data.comments.push(c);
+        });
+        data.versions = state.data.versions;  // keep the objects the player is using
+      }
       state.data = data;
       if (first) {
         projectId = data.project.id;
@@ -297,14 +420,25 @@
     var v = state.data.versions.filter(function (x) { return x.version === Number(num); })[0];
     if (!v) return;
     state.version = v;
+    stallCount = 0; pendingSeek = null;
     $('versionSelect').value = v.version;
     $('videoError').hidden = true;
+    $('scrubBuffer').style.width = '0';
     if (!DEMO && v.fileId && !CFG.driveApiKey && !blobUrls[v.fileId]) {
       // Drive no longer plays on other sites, so go straight to the backend.
       video.removeAttribute('src');
       startProxy(v);
+    } else if (localUrl[v.fileId]) {
+      video.src = localUrl[v.fileId];
     } else {
-      video.src = videoUrl(v);
+      // Watched before on this browser? Play the saved copy; otherwise stream and save it.
+      var streamUrl = videoUrl(v);
+      fromCache(v).then(function (hit) {
+        if (state.version !== v) return;
+        if (hit) { localUrl[v.fileId] = hit; full[v.fileId] = Promise.resolve(hit); video.src = hit; $('scrubBuffer').style.width = '100%'; return; }
+        video.src = streamUrl;
+        startFullDownload(v);
+      });
     }
     var dl = $('downloadBtn');
     if (CFG.allowDownload && v.fileId) {
@@ -350,18 +484,19 @@
 
   function commentEl(c, isReply) {
     var el = document.createElement('div');
-    el.className = 'comment' + (c.status === 'done' ? ' is-done' : '') + (state.activeId === c.id ? ' active' : '');
+    el.className = 'comment' + (c.status === 'done' ? ' is-done' : '') + (state.activeId === c.id ? ' active' : '') + (c.pending ? ' pending' : '');
     el.dataset.id = c.id;
     var html = '<div class="c-head"><span class="avatar" style="background:' + colorFor(c.author) + '">' + esc((c.author || '?').trim().charAt(0).toUpperCase()) + '</span>' +
       '<span class="c-author">' + esc(c.author) + '</span>' +
       (c.status === 'done' && !isReply ? '<span class="c-done-badge">✓</span>' : '') +
-      '<span class="c-time">' + esc(timeAgo(c.createdAt)) + '</span></div>';
+      '<span class="c-time">' + (c.pending ? esc(T.sending || 'Sending…') : esc(timeAgo(c.createdAt))) + '</span></div>';
     if (!isReply) html += '<span class="c-tc">' + esc(c.timecode || frameToTc(c.frame)) + '</span>';
     html += '<p class="c-text" dir="auto">' + esc(c.text) + '</p>';
     var acts = [];
-    if (!isReply) acts.push('<button type="button" data-act="reply">' + esc(T.reply || 'Reply') + '</button>');
-    if (state.data.admin && !isReply) acts.push('<button type="button" data-act="toggle">' + esc(c.status === 'done' ? (T.reopen || 'Reopen') : (T.markDone || 'Mark done')) + '</button>');
-    if (state.data.admin) acts.push('<button type="button" data-act="delete">' + esc(T.remove || 'Delete') + '</button>');
+    if (c.pending) { /* no actions until the server has it */ }
+    else if (!isReply) acts.push('<button type="button" data-act="reply">' + esc(T.reply || 'Reply') + '</button>');
+    if (state.data.admin && !isReply && !c.pending) acts.push('<button type="button" data-act="toggle">' + esc(c.status === 'done' ? (T.reopen || 'Reopen') : (T.markDone || 'Mark done')) + '</button>');
+    if (state.data.admin && !c.pending) acts.push('<button type="button" data-act="delete">' + esc(T.remove || 'Delete') + '</button>');
     if (acts.length) html += '<div class="c-actions">' + acts.join('') + '</div>';
     el.innerHTML = html;
 
@@ -418,29 +553,64 @@
   }
 
   function submitComment(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
     var text = $('commentInput').value.trim();
     var author = $('authorInput').value.trim();
-    if (!author) { $('authorInput').focus(); toast(T.yourName || 'Your name'); return; }
     if (!text) { $('commentInput').focus(); return; }
+    if (!author) {
+      $('authorInput').focus();
+      $('authorInput').classList.add('need');
+      toast(T.needName || 'Add your name, then press Send');
+      return;
+    }
+    $('authorInput').classList.remove('need');
     try { localStorage.setItem('review.author', author); } catch (err) { /* private mode */ }
 
     var reply = state.replyTo;
-    var frame = reply ? reply.frame : ($('attachTc').checked ? state.composerFrame : 0);
+    var stamp = !reply && $('attachTc').checked;
+    var frame = reply ? reply.frame : (stamp ? state.composerFrame : 0);
     var body = {
       action: 'comment', p: projectId, version: state.version.version,
-      frame: frame, timecode: reply ? reply.timecode : ($('attachTc').checked ? frameToTc(frame) : ''),
+      frame: frame, timecode: reply ? reply.timecode : (stamp ? frameToTc(frame) : ''),
       author: author, text: text, parentId: reply ? reply.id : ''
     };
-    $('sendBtn').disabled = true;
+
+    // Show it straight away; the server confirms in the background.
+    var temp = {
+      id: 'tmp-' + Math.random().toString(36).slice(2, 9), version: body.version, frame: frame, timecode: body.timecode,
+      author: author, text: text, parentId: body.parentId || null, status: 'open', createdAt: new Date().toISOString(), pending: true
+    };
+    state.data.comments.push(temp);
+    $('commentInput').value = '';
+    cancelReply();
+    renderComments(); renderMarkers();
+    if (!reply) scrollToComment(temp.id);
+
+    sendComment(body, temp, 0);
+  }
+
+  function sendComment(body, temp, tries) {
     api.post(body).then(function (res) {
-      res.comment.version = Number(res.comment.version); res.comment.frame = Number(res.comment.frame);
-      state.data.comments.push(res.comment);
-      $('commentInput').value = '';
-      cancelReply();
+      var c = res.comment;
+      c.version = Number(c.version); c.frame = Number(c.frame); c.parentId = c.parentId || null;
+      state.sentAt[c.id] = Date.now();
+      var list = state.data.comments, already = list.some(function (x) { return x.id === c.id; });
+      state.data.comments = list.filter(function (x) { return x.id !== temp.id || !already; })
+        .map(function (x) { return x.id === temp.id ? c : x; });
+      if (state.activeId === temp.id) state.activeId = c.id;
       renderComments(); renderMarkers();
-    }).catch(function (err) { toast(err.message); })
-      .then(function () { $('sendBtn').disabled = false; });
+    }).catch(function (err) {
+      if (tries < 2 && !/Missing|not found/i.test(err.message)) {
+        setTimeout(function () { sendComment(body, temp, tries + 1); }, 1500 * (tries + 1));
+        return;
+      }
+      // Give the text back so nothing typed is lost.
+      state.data.comments = state.data.comments.filter(function (x) { return x.id !== temp.id; });
+      renderComments(); renderMarkers();
+      var box = $('commentInput');
+      if (!box.value.trim()) box.value = body.text;
+      toast(T.sendFailed || 'Your note didn’t send. Check your connection and press Send again.');
+    });
   }
 
   /* ---------------------------------------------------------- markers */
@@ -474,25 +644,30 @@
 
   /* ----------------------------------------------------------- player */
 
-  function updateTime() {
-    var f = currentFrame();
+  function updateTime() { updateTimeAt(currentFrame()); }
+
+  // The note box always shows (and stamps) the frame on screen, like Frame.io.
+  // Typing pauses the video, so it stays on the frame you are looking at.
+  function updateTimeAt(f) {
     $('tcNow').textContent = frameToTc(f);
     var total = totalFrames();
-    $('scrubFill').style.width = total ? (f / total * 100) + '%' : '0';
-    if (document.activeElement !== $('commentInput') || !$('commentInput').value) {
-      state.composerFrame = f;
-      $('composerTc').textContent = frameToTc(f);
-    }
+    $('scrubFill').style.width = total ? (Math.min(f, total) / total * 100) + '%' : '0';
+    state.composerFrame = f;
+    $('composerTc').textContent = frameToTc(f);
   }
 
   function updateBuffer() {
     try {
-      var b = video.buffered;
-      if (b.length && video.duration) $('scrubBuffer').style.width = (b.end(b.length - 1) / video.duration * 100) + '%';
+      var b = video.buffered, cur = parseFloat($('scrubBuffer').style.width) || 0;
+      if (b.length && video.duration) $('scrubBuffer').style.width = Math.max(cur, b.end(b.length - 1) / video.duration * 100) + '%';
     } catch (e) { /* ignore */ }
   }
 
-  function togglePlay() { if (video.paused) video.play(); else video.pause(); }
+  var finePointer = window.matchMedia ? window.matchMedia('(pointer: fine)').matches : true;
+
+  function togglePlay() {
+    if (video.paused) { var p = video.play(); if (p && p.catch) p.catch(function () {}); } else video.pause();
+  }
 
   function bindPlayer() {
     video.addEventListener('click', togglePlay);
@@ -512,17 +687,29 @@
     video.addEventListener('timeupdate', updateTime);
     video.addEventListener('seeked', updateTime);
     video.addEventListener('progress', updateBuffer);
+    video.addEventListener('waiting', onStall);
+    video.addEventListener('stalled', onStall);
+    video.addEventListener('playing', function () { clearTimeout(stallTimer); $('player').classList.remove('buffering'); });
+    video.addEventListener('waiting', function () { $('player').classList.add('buffering'); });
+    video.addEventListener('canplay', function () { $('player').classList.remove('buffering'); });
+    video.addEventListener('pause', useLocalWhenSafe);
+    video.addEventListener('ended', useLocalWhenSafe);
     function fitPlayer() {
       var w = video.videoWidth, h = video.videoHeight, box = $('player');
       if (!w || !h) return;
       box.style.setProperty('--ar', w / h);
       box.classList.toggle('tall', h >= w);
     }
-    video.addEventListener('loadedmetadata', function () { fitPlayer(); $('tcDur').textContent = frameToTc(totalFrames()); renderMarkers(); updateTime(); });
+    video.addEventListener('loadedmetadata', function () {
+      fitPlayer();
+      if (pendingSeek != null) { try { video.currentTime = pendingSeek; } catch (e) { /* ignore */ } pendingSeek = null; }
+      $('tcDur').textContent = frameToTc(totalFrames()); renderMarkers(); updateTime();
+    });
     video.addEventListener('error', function () {
       var err = $('videoError');
       var v = state.version;
       if (!video.getAttribute('src')) return; // no source yet (loading through the backend)
+      if (v && localUrl[v.fileId] && video.src !== localUrl[v.fileId]) { swapSource(localUrl[v.fileId]); return; }
       if (!DEMO && v && v.fileId && !video.src.startsWith('blob:') && !v.proxyTried) {
         startProxy(v);
         return;
@@ -557,11 +744,16 @@
     document.addEventListener('keydown', function (e) {
       var tag = (e.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.id === 'commentInput') $('composer').requestSubmit();
+        // Enter sends (Shift+Enter for a new line); on phones Enter is a new line and the Send button sends.
+        if (e.key === 'Enter' && !e.isComposing && (e.target.id === 'commentInput' || e.target.id === 'authorInput') &&
+            (e.metaKey || e.ctrlKey || (!e.shiftKey && finePointer))) { e.preventDefault(); submitComment(); }
         if (e.key === 'Escape') e.target.blur();
         return;
       }
       if (!$('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
+      // A player button that still has focus would also "click" on Space and undo the play/pause.
+      if ((tag === 'button' || tag === 'a') && (e.key === ' ' || e.key === 'Enter') && !e.target.closest('.player, .controls')) return;
+      if (tag === 'button' && e.target.blur) e.target.blur();
       if (e.key === ' ' || e.key === 'k') { e.preventDefault(); togglePlay(); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); video.pause(); seekFrame(currentFrame() - (e.shiftKey ? nominal(fps()) : 1)); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); video.pause(); seekFrame(currentFrame() + (e.shiftKey ? nominal(fps()) : 1)); }
@@ -576,6 +768,7 @@
       $('composerTc').textContent = frameToTc(state.composerFrame);
     });
     $('composer').addEventListener('submit', submitComment);
+    $('authorInput').addEventListener('input', function () { this.classList.remove('need'); });
     $('versionSelect').onchange = function () { video.pause(); state.activeId = null; selectVersion(this.value); };
 
     try { $('authorInput').value = localStorage.getItem('review.author') || ''; } catch (e) { /* ignore */ }

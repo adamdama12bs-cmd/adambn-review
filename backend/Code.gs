@@ -115,6 +115,7 @@ function doPost(e) {
       case 'updateProject': return json(updateProject(body));
       case 'deleteProject': return json(deleteProject(body.id));
       case 'deleteVersion': return json(deleteVersion(body.projectId, body.version));
+      case 'replaceVersionFile': return json(replaceVersionFile(body));
       case 'createFolder': return json(createFolder(body));
       case 'updateFolder': return json(updateFolder(body));
       case 'deleteFolder': return json(deleteFolder(body.id));
@@ -474,6 +475,28 @@ function deleteVersion(projectId, version) {
     if (!v) throw new Error('Version not found');
     trashFile(v.fileId);
     sheet('Versions').deleteRow(v._row);
+    return { ok: true };
+  });
+}
+
+/**
+ * Swaps a version's video file for a lighter copy (made in the dashboard).
+ * Same version number, comments and links; the old file goes to the Drive trash.
+ */
+function replaceVersionFile(b) {
+  if (!b.fileId) throw new Error('Missing fileId');
+  var file = DriveApp.getFileById(b.fileId);
+  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  return withLock(function () {
+    findProject(b.projectId);
+    var v = rows('Versions').filter(function (x) { return x.projectId === b.projectId && Number(x.version) === Number(b.version); })[0];
+    if (!v) throw new Error('Version not found');
+    var old = v.fileId;
+    var set = { fileId: b.fileId, fileName: file.getName(), size: Number(b.size) || file.getSize() };
+    if (Number(b.width)) set.width = Number(b.width);
+    if (Number(b.height)) set.height = Number(b.height);
+    setCells('Versions', v._row, set);
+    if (old && old !== b.fileId) trashFile(old);
     return { ok: true };
   });
 }
