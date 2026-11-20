@@ -206,7 +206,24 @@
     $('main').scrollTop = 0;
   }
 
+  function renderHeavyBanner() {
+    var heavy = 0;
+    state.lib.projects.forEach(function (p) { p.versions.forEach(function (x) { if (heavyVersion(x)) heavy++; }); });
+    var b = $('heavyBanner');
+    if (!b) {
+      b = document.createElement('div'); b.id = 'heavyBanner'; b.className = 'heavy-banner';
+      $('main').insertBefore(b, $('main').firstChild);
+    }
+    b.hidden = !heavy || !(window.ReviewConvert && window.ReviewConvert.supported());
+    if (b.hidden) return;
+    b.innerHTML = '<span><b>' + heavy + ' video' + (heavy === 1 ? ' is a' : 's are') + ' heavy 4K master' + (heavy === 1 ? '' : 's') + '</b> and can stall for clients. ' +
+      'Make light 1080p copies (same links, same comments, same timecode). Keep this tab open while it runs.</span>' +
+      '<button class="btn small" type="button">Make them play smoothly</button>';
+    b.querySelector('button').onclick = function () { window.fixAllHeavy(); b.querySelector('button').disabled = true; };
+  }
+
   function renderMain() {
+    renderHeavyBanner();
     var view = state.view, q = state.search.trim().toLowerCase();
     var crumbs = $('crumbs'), acts = $('headActions');
     $('inbox').hidden = view !== 'inbox';
@@ -383,6 +400,7 @@
           return '<div class="ver"><b>v' + x.version + '</b><span class="muted">' + esc(timeAgo(x.createdAt)) +
             [x.width && x.height ? x.width + '×' + x.height : '', x.fps ? x.fps + ' fps' : '', fmtSize(x.size)].filter(Boolean).map(function (s) { return ' · ' + s; }).join('') + '</span>' +
             '<a class="linklike" href="' + esc(link + (link.indexOf('?') >= 0 ? '&' : '?') + 'v=' + x.version) + '" target="_blank" rel="noopener">Open</a>' +
+            (heavyVersion(x) ? '<button class="linklike fixv" type="button" data-fix-version="' + x.version + '" title="Make a light 1080p copy so it streams smoothly for clients">Make it play smoothly</button>' : '') +
             (p.versions.length > 1 ? '<button class="linklike danger" type="button" data-del-version="' + x.version + '">Delete</button>' : '') + '</div>';
         }).join('') + '</div>' +
       '<h3>Comments <span class="muted">' + p.open + ' open · ' + p.done + ' done</span></h3>' +
@@ -398,6 +416,9 @@
     d.querySelector('[data-a=version]').onclick = function () { pickFiles({ projectId: p.id }); };
     d.querySelector('[data-a=move]').onclick = function () { moveDialog(p); };
     d.querySelector('[data-a=delete]').onclick = function () { deleteProject(p); };
+    [].forEach.call(d.querySelectorAll('[data-fix-version]'), function (b) {
+      b.onclick = function () { fixVersion(p, Number(b.dataset.fixVersion)); };
+    });
     [].forEach.call(d.querySelectorAll('[data-del-version]'), function (b) {
       b.onclick = function () { deleteVersion(p, Number(b.dataset.delVersion)); };
     });
@@ -684,6 +705,7 @@
             '<label>Start TC <input class="up-tc" value="' + esc(prev ? prev.startTC : (lastTc || '00:00:00:00')) + '" maxlength="11"></label>' +
             '<span class="muted small up-info">' + fmtSize(f.size) + ' · reading…</span>' +
           '</div>' +
+          '<label class="up-conv"' + (window.ReviewConvert && window.ReviewConvert.supported() ? '' : ' hidden') + '><input type="checkbox" class="up-light"' + (likelyHeavy(f) ? ' checked' : '') + '> Make a light review copy (1080p H.264) so it plays smoothly</label>' +
           '<div class="up-warn" hidden></div>' +
         '</div></div>';
     }).join('');
@@ -702,13 +724,17 @@
           if (m.fpsKnown && prev) row.querySelector('.up-fps').value = m.fps;
           if (m.startTC) row.querySelector('.up-tc').value = m.startTC;
           row.querySelector('.up-info').textContent = [fmtSize(f.size), m.width && m.height ? m.width + '×' + m.height : '', m.durationFrames ? fmtDur(m.durationFrames, m.fps) : '', m.startTC ? 'TC from file' : ''].filter(Boolean).join(' · ');
-          var warn = [];
-          if (!m.playable) warn.push('Browsers can’t play this file (probably ProRes or another edit codec). Export an H.264 .mp4 for review.');
-          else if (f.size > 600 * 1048576) warn.push('Big file: clients will wait a while before it plays. A 1080p H.264 export of the same edit is usually under 200 MB.');
+          var warn = [], light = row.querySelector('.up-light'), canConvert = window.ReviewConvert && window.ReviewConvert.supported();
+          var heavy = window.ReviewConvert ? window.ReviewConvert.needed(m, f.size) : false;
+          if (light && !light.dataset.touched) light.checked = heavy && canConvert;
+          if (heavy && canConvert) warn.push('This is a heavy master' + (m.width ? ' (' + m.width + '×' + m.height + ')' : '') + '. A light copy is made on this computer before upload, so clients can watch without stalling. Timecode stays the same.');
+          else if (!m.playable) warn.push('Browsers can’t play this file (probably ProRes or another edit codec). Export an H.264 .mp4 for review.');
+          else if (heavy) warn.push('Big file: clients may see it stall. A 1080p H.264 export of the same edit streams much better.');
           if (warn.length) { var w = row.querySelector('.up-warn'); w.hidden = false; w.textContent = warn.join(' '); }
           return m;
         });
       });
+      [].forEach.call(box.querySelectorAll('.up-light'), function (c) { c.onchange = function () { c.dataset.touched = '1'; }; });
       box.querySelector('form').onsubmit = function (e) {
         e.preventDefault();
         var client = box.querySelector('.up-client') ? box.querySelector('.up-client').value.trim() : '';
@@ -720,7 +746,8 @@
             file: f, probe: probes[i],
             title: project ? project.title : (row.querySelector('.up-title').value.trim() || baseName(f.name)),
             client: client, fps: Number(row.querySelector('.up-fps').value) || 25, startTC: tc,
-            projectId: project ? project.id : '', folderId: project ? project.folderId : (target.folderId || '')
+            projectId: project ? project.id : '', folderId: project ? project.folderId : (target.folderId || ''),
+            light: !!(row.querySelector('.up-light') && row.querySelector('.up-light').checked && !row.querySelector('.up-conv').hidden)
           };
         });
         try { localStorage.setItem('adambn.lastTC', jobs[0].startTC); } catch (err) { /* ignore */ }
@@ -784,31 +811,122 @@
   }
 
   function runJob(job) {
-    var f = job.file, size = f.size;
-    var mime = f.type || (/\.mov$/i.test(f.name) ? 'video/quicktime' : 'video/mp4');
-    var ext = (f.name.match(/\.[^.]+$/) || ['.mp4'])[0];
     var project = job.projectId && projectById(job.projectId);
     var vnum = project ? (project.versions.reduce(function (m, v) { return Math.max(m, v.version); }, 0) + 1) : 1;
-    var driveName = job.title.replace(/[\\/:*?"<>|]+/g, ' ') + ' v' + vnum + ext;
-    setJob(job, 0, 'Starting…');
+    setJob(job, 0, job.light ? 'Making light copy…' : 'Starting…');
 
-    return post({ action: 'startUpload', name: driveName, size: size, mime: mime, origin: location.origin })
-      .then(function (s) {
-        return sendFile(s.uploadUrl, f, function (sent, how) {
-          setJob(job, sent / size * 100, Math.floor(sent / size * 100) + '%' + (how === 'relay' ? ' (slow mode)' : ''));
-        });
-      })
-      .then(function (fileId) {
-        setJob(job, 100, 'Finishing…');
-        return job.probe.then(function (m) {
-          return post({
-            action: 'finalizeUpload', fileId: fileId, projectId: job.projectId || '', folderId: job.folderId,
-            title: job.title, client: job.client, fps: job.fps, startTC: job.startTC,
-            durationFrames: m.durationFrames || 0, width: m.width || 0, height: m.height || 0, thumb: m.thumb || '', size: size
+    var prepared = job.light
+      ? window.ReviewConvert.convert(job.file, function (p) { setJob(job, p * 100, 'Making light copy ' + Math.floor(p * 100) + '%'); })
+          .then(function (c) { return { blob: c.blob, width: c.width, height: c.height, name: 'review.mp4', mime: 'video/mp4' }; }, function (e) {
+            // Could not convert on this computer: upload the original rather than nothing.
+            toast('Light copy failed (' + e.message + '). Uploading the original.');
+            return null;
+          })
+      : Promise.resolve(null);
+
+    return prepared.then(function (c) {
+      var f = c ? c.blob : job.file, size = f.size;
+      var name = c ? c.name : job.file.name;
+      var mime = c ? c.mime : (job.file.type || (/\.mov$/i.test(name) ? 'video/quicktime' : 'video/mp4'));
+      var ext = (name.match(/\.[^.]+$/) || ['.mp4'])[0];
+      var driveName = job.title.replace(/[\\/:*?"<>|]+/g, ' ') + ' v' + vnum + ext;
+      setJob(job, 0, 'Uploading…');
+      return post({ action: 'startUpload', name: driveName, size: size, mime: mime, origin: location.origin })
+        .then(function (s) {
+          return sendFile(s.uploadUrl, f, function (sent, how) {
+            setJob(job, sent / size * 100, 'Uploading ' + Math.floor(sent / size * 100) + '%' + (how === 'relay' ? ' (slow mode)' : ''));
+          });
+        })
+        .then(function (fileId) {
+          setJob(job, 100, 'Finishing…');
+          return job.probe.then(function (m) {
+            return post({
+              action: 'finalizeUpload', fileId: fileId, projectId: job.projectId || '', folderId: job.folderId,
+              title: job.title, client: job.client, fps: job.fps, startTC: job.startTC,
+              durationFrames: m.durationFrames || 0, width: (c && c.width) || m.width || 0, height: (c && c.height) || m.height || 0,
+              thumb: m.thumb || '', size: size
+            });
           });
         });
-      });
+    });
   }
+
+  /* ------------------------------------------- light copies of old uploads */
+
+  function likelyHeavy(f) { return /\.mov$/i.test(f.name) || f.size > 250 * 1048576; }
+
+  function heavyVersion(x) {
+    if (!x.fileId) return false;
+    var secs = x.durationFrames && x.fps ? x.durationFrames / x.fps : 0;
+    var mbps = secs && x.size ? x.size * 8 / secs / 1e6 : 0;
+    return /\.mov$/i.test(x.fileName || '') || Math.max(x.width || 0, x.height || 0) > 1920 || mbps > 16;
+  }
+
+  function driveUrl(fileId) {
+    return 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&key=' + encodeURIComponent(CFG.driveApiKey || '');
+  }
+
+  var fixing = {}, fixChain = Promise.resolve();
+
+  /** Replaces a heavy version's file with a light copy. Same version number, same comments, same link. */
+  function fixVersion(p, version) {
+    var x = p.versions.filter(function (v) { return v.version === version; })[0];
+    if (!x || fixing[x.fileId]) return;
+    if (!window.ReviewConvert || !window.ReviewConvert.supported()) { toast('Open the dashboard in Chrome on your computer to do this.'); return; }
+    if (!CFG.driveApiKey) { toast('Needs the Drive API key in config.js'); return; }
+    fixing[x.fileId] = true;
+    var job = { title: p.title + (p.versions.length > 1 ? ' v' + version : '') + ' · light copy' };
+    job.el = document.createElement('div');
+    job.el.className = 'upl';
+    job.el.innerHTML = '<div class="upl-top"><b>' + esc(job.title) + '</b><span class="upl-pct muted">Waiting</span></div><div class="upl-bar"><i></i></div>';
+    $('uploads').hidden = false;
+    $('uploads').appendChild(job.el);
+    window.onbeforeunload = function () { return 'A light copy is still being made'; };
+
+    // One at a time: converting is heavy work for the computer.
+    fixChain = fixChain.then(function () {
+     return window.ReviewConvert.convert(driveUrl(x.fileId), function (pr) { setJob(job, pr * 100, 'Making light copy ' + Math.floor(pr * 100) + '%'); })
+      .then(function (c) {
+        var size = c.blob.size;
+        var driveName = p.title.replace(/[\\/:*?"<>|]+/g, ' ') + ' v' + version + '.mp4';
+        return post({ action: 'startUpload', name: driveName, size: size, mime: 'video/mp4', origin: location.origin })
+          .then(function (s) {
+            return sendFile(s.uploadUrl, c.blob, function (sent, how) {
+              setJob(job, sent / size * 100, 'Uploading ' + Math.floor(sent / size * 100) + '%' + (how === 'relay' ? ' (slow mode)' : ''));
+            });
+          })
+          .then(function (fileId) {
+            setJob(job, 100, 'Finishing…');
+            return post({ action: 'replaceVersionFile', projectId: p.id, version: version, fileId: fileId, size: size, width: c.width, height: c.height });
+          });
+      })
+      .then(function () {
+        job.el.classList.add('ok'); setJob(job, 100, 'Done');
+        toast('“' + p.title + '” now plays smoothly');
+        return load();
+      })
+      .catch(function (e) {
+        job.el.classList.add('err'); setJob(job, 100, 'Failed');
+        var m = document.createElement('div');
+        m.className = 'upl-done';
+        m.innerHTML = '<span class="small">' + esc(e.message) + '</span> <button class="linklike" type="button">Close</button>';
+        m.querySelector('button').onclick = function () { job.el.remove(); if (!$('uploads').children.length) $('uploads').hidden = true; };
+        job.el.appendChild(m);
+      })
+      .then(function () {
+        delete fixing[x.fileId];
+        if (!Object.keys(fixing).length && !running) window.onbeforeunload = null;
+        setTimeout(function () { if (job.el.classList.contains('ok')) { job.el.remove(); if (!$('uploads').children.length) $('uploads').hidden = true; } }, 4000);
+      });
+    });
+  }
+
+  /** Exposed so every heavy video can be fixed in one go from the console or a button. */
+  window.fixAllHeavy = function () {
+    (state.lib ? state.lib.projects : []).forEach(function (p) {
+      p.versions.forEach(function (x) { if (heavyVersion(x)) fixVersion(p, x.version); });
+    });
+  };
 
   /**
    * Sends the file to the Drive upload session. Tries the fast way first
