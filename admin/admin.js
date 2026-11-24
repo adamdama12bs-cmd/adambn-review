@@ -862,8 +862,34 @@
     return /\.mov$/i.test(x.fileName || '') || Math.max(x.width || 0, x.height || 0) > 1920 || mbps > 16;
   }
 
-  function driveUrl(fileId) {
-    return 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?alt=media&key=' + encodeURIComponent(CFG.driveApiKey || '');
+  // Fetches the original through the backend in slices (the same route the review page
+  // falls back to). Google rate-limits big downloads with the public API key, so it isn't used here.
+  function driveSource(fileId, onProgress) {
+    function get(i, tries) {
+      return fetch(API + '?action=chunk&f=' + encodeURIComponent(fileId) + '&i=' + i)
+        .then(function (r) { return r.json(); }).then(check)
+        .catch(function (e) {
+          if ((tries || 0) >= 3) throw e;
+          return new Promise(function (ok) { setTimeout(ok, 2000 * ((tries || 0) + 1)); }).then(function () { return get(i, (tries || 0) + 1); });
+        });
+    }
+    function bytes(b64) {
+      var bin = atob(b64), out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    return get(0).then(function (first) {
+      var parts = [bytes(first.data)], next = 1, done = 1;
+      onProgress(done / first.chunks);
+      function worker() {
+        if (next >= first.chunks) return Promise.resolve();
+        var i = next++;
+        return get(i).then(function (c) { parts[i] = bytes(c.data); done++; onProgress(done / first.chunks); return worker(); });
+      }
+      var pool = [];
+      for (var w = 0; w < 5; w++) pool.push(worker());
+      return Promise.all(pool).then(function () { return new Blob(parts); });
+    });
   }
 
   var fixing = {}, fixChain = Promise.resolve();
@@ -873,7 +899,6 @@
     var x = p.versions.filter(function (v) { return v.version === version; })[0];
     if (!x || fixing[x.fileId]) return;
     if (!window.ReviewConvert || !window.ReviewConvert.supported()) { toast('Open the dashboard in Chrome on your computer to do this.'); return; }
-    if (!CFG.driveApiKey) { toast('Needs the Drive API key in config.js'); return; }
     fixing[x.fileId] = true;
     var job = { title: p.title + (p.versions.length > 1 ? ' v' + version : '') + ' · light copy' };
     job.el = document.createElement('div');
@@ -885,7 +910,10 @@
 
     // One at a time: converting is heavy work for the computer.
     fixChain = fixChain.then(function () {
-     return window.ReviewConvert.convert(driveUrl(x.fileId), function (pr) { setJob(job, pr * 100, 'Making light copy ' + Math.floor(pr * 100) + '%'); })
+     return driveSource(x.fileId, function (pr) { setJob(job, pr * 100, 'Fetching from Drive ' + Math.floor(pr * 100) + '%'); }).then(function (src) {
+      setJob(job, 0, 'Making light copy…');
+      return window.ReviewConvert.convert(src, function (pr) { setJob(job, pr * 100, 'Making light copy ' + Math.floor(pr * 100) + '%'); });
+     })
       .then(function (c) {
         var size = c.blob.size;
         var driveName = p.title.replace(/[\\/:*?"<>|]+/g, ' ') + ' v' + version + '.mp4';
